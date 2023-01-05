@@ -1,0 +1,60 @@
+kind: DaemonSet
+apiVersion: apps/v1
+metadata:
+  name: vpn
+spec:
+  selector:
+    matchLabels:
+      app: vpn
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: vpn
+    spec:
+      nodeSelector:
+        node-role.kubernetes.io/worker: ''
+      restartPolicy: Always
+      serviceAccountName: vpn
+      schedulerName: default-scheduler
+      hostNetwork: true
+      terminationGracePeriodSeconds: 30
+      securityContext: {}
+      containers:
+        - resources: {}
+          terminationMessagePath: /dev/termination-log
+          name: vpn
+          command:
+            - /bin/sh
+            - '-c'
+            - >-
+              twingate setup --headless /secret/credentials.json; twingate
+              start; while [ true ]; do sleep 60000; done
+          securityContext:
+            privileged: true
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: credentials
+              mountPath: /secret
+          terminationMessagePolicy: File
+          image: '<built-image>'
+      serviceAccount: vpn
+      volumes:
+        - name: credentials
+          secret:
+            secretName: credentials
+            defaultMode: 420
+      dnsPolicy: ClusterFirst
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 0
+  revisionHistoryLimit: 10
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 25%
+      maxSurge: 25%
+  revisionHistoryLimit: 10
+  progressDeadlineSeconds: 600
