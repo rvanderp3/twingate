@@ -1,5 +1,5 @@
-kind: DaemonSet
 apiVersion: apps/v1
+kind: DaemonSet
 metadata:
   name: vpn
 spec:
@@ -8,53 +8,81 @@ spec:
       app: vpn
   template:
     metadata:
-      creationTimestamp: null
       labels:
         app: vpn
     spec:
-      nodeSelector:
-        node-role.kubernetes.io/worker: ''
-      restartPolicy: Always
-      serviceAccountName: vpn
-      schedulerName: default-scheduler
-      hostNetwork: true
-      terminationGracePeriodSeconds: 30
-      securityContext: {}
       containers:
-        - resources: {}
-          terminationMessagePath: /dev/termination-log
-          name: vpn
-          command:
+      - command:
+        - sleep
+        - infinity
+        env:
+        - name: SEG_START
+          value: "200"
+        - name: SEG_END
+          value: "213"
+        - name: STATUS_FILE
+          value: "/status/failing"
+        image: quay.io/ocp-splat/cluster-health:latest
+        imagePullPolicy: Always
+        livenessProbe:
+          exec:
+            command:
             - /bin/sh
-            - '-c'
-            - >-
-              twingate setup --headless /secret/credentials.json; twingate
-              start; while [ true ]; do sleep 60000; done
-          securityContext:
-            privileged: true
-          imagePullPolicy: IfNotPresent
-          volumeMounts:
-            - name: credentials
-              mountPath: /secret
-          terminationMessagePolicy: File
-          image: '<built-image>'
-      serviceAccount: vpn
-      volumes:
-        - name: credentials
-          secret:
-            secretName: credentials
-            defaultMode: 420
+            - -c
+            - ./network-check.sh
+          failureThreshold: 3
+          initialDelaySeconds: 5
+          periodSeconds: 30
+          successThreshold: 1
+          timeoutSeconds: 30
+        name: check
+        resources: {}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: FallbackToLogsOnError
+        volumeMounts:
+        - mountPath: /status
+          name: status
+      - command:
+        - /bin/sh
+        - -c
+        - trap "twingate report" EXIT;twingate setup --headless /secret/credentials.json;
+          twingate start; while [ true ]; do sleep 60;if [ -f "STATUS_FILE" ];then exit 1;fi;done
+        env:
+        - name: STATUS_FILE
+          value: "/status/failing"
+        image: image-registry.openshift-image-registry.svc:5000/twingate/twingate:latest
+        imagePullPolicy: IfNotPresent
+        name: vpn
+        resources: {}
+        securityContext:
+          privileged: true
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /secret
+          name: credentials
+        volumeMounts:
+        - mountPath: /status
+          name: status
       dnsPolicy: ClusterFirst
+      hostNetwork: true
+      nodeSelector:
+        node-role.kubernetes.io/worker: ""
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      serviceAccount: vpn
+      serviceAccountName: vpn
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: credentials
+        secret:
+          defaultMode: 420
+          secretName: credentials
+      - name: status
+        emptyDir: {}
   updateStrategy:
-    type: RollingUpdate
     rollingUpdate:
-      maxUnavailable: 1
       maxSurge: 0
-  revisionHistoryLimit: 10
-  strategy:
+      maxUnavailable: 1
     type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 25%
-      maxSurge: 25%
-  revisionHistoryLimit: 10
-  progressDeadlineSeconds: 600
